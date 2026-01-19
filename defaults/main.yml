@@ -15,7 +15,7 @@ omnitools_identifier: omnitools
 omnitools_base_path: "/{{ omnitools_identifier }}"
 
 # renovate: datasource=docker depName=iib0011/omni-tools
-omnitools_version: 0.6.0
+omnitools_version: 0.6
 
 omnitools_uid: ""
 omnitools_gid: ""
