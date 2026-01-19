@@ -15,7 +15,7 @@ omnitools_identifier: omnitools
 omnitools_base_path: "/{{ omnitools_identifier }}"
 
 # renovate: datasource=docker depName=iib0011/omni-tools
-omnitools_version: 0.6
+omnitools_version: latest
 
 omnitools_uid: ""
 omnitools_gid: ""
@@ -37,7 +37,7 @@ omnitools_container_image: "{{ omnitools_container_image_registry_prefix }}iib00
 omnitools_container_image_tag: "{{ omnitools_version }}"
 omnitools_container_image_registry_prefix: "{{ omnitools_container_image_registry_prefix_upstream }}"
 omnitools_container_image_registry_prefix_upstream: "{{ omnitools_container_image_registry_prefix_upstream_default }}"
-omnitools_container_image_registry_prefix_upstream_default: ghcr.io/
+omnitools_container_image_registry_prefix_upstream_default: docker.io/
 omnitools_container_image_force_pull: "{{ omnitools_container_image.endswith(':latest') }}"
 
 omnitools_container_image_self_build: false
