@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2023 Slavi Pantaleev
+# SPDX-FileCopyrightText: 2025 Suguru Hirahara
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+- name: Perform OmniTools installation tasks
+  when: omnitools_enabled | bool
+  tags:
+    - setup-all
+    - setup-omnitools
+    - install-all
+    - install-omnitools
+  block:
+    - name: Validate OmniTools configuration
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/validate_config.yml"
+    - name: Install OmniTools
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/install.yml"
+
+- name: Perform OmniTools uninstallation tasks
+  when: not omnitools_enabled | bool
+  tags:
+    - setup-all
+    - setup-omnitools
+  block:
+    - name: Uninstall OmniTools
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/uninstall.yml"

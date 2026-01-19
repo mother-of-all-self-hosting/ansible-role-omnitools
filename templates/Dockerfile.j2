@@ -1,0 +1,33 @@
+{#
+SPDX-FileCopyrightText: 2024 - 2025 OmniTools project contributors
+SPDX-FileCopyrightText: 2025 Suguru Hirahara
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+#}
+
+{#
+  See: https://raw.githubusercontent.com/gchq/OmniTools/refs/heads/master/Dockerfile
+#}
+
+FROM --platform=${BUILDPLATFORM} node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy the application source code
+COPY package*.json ./
+
+RUN npm ci --ignore-scripts
+
+COPY . .
+
+RUN npm run postinstall
+
+# Build the application
+RUN npm run build
+
+# Use a lighter base image for the production environment
+FROM joseluisq/static-web-server:latest
+
+COPY --from=builder /app/build/prod {{ omnitools_environment_variables_server_root }}
+
+EXPOSE "{{ omnitools_container_http_port }}"

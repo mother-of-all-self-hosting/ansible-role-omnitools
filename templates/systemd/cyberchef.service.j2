@@ -1,0 +1,72 @@
+{#
+SPDX-FileCopyrightText: 2023 Slavi Pantaleev
+SPDX-FileCopyrightText: 2024 Nikita Chernyi
+SPDX-FileCopyrightText: 2025 Suguru Hirahara
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+#}
+
+[Unit]
+Description=OmniTools ({{ omnitools_identifier }})
+{% for service in omnitools_systemd_required_services_list %}
+Requires={{ service }}
+After={{ service }}
+{% endfor %}
+{% for service in omnitools_systemd_wanted_services_list %}
+Wants={{ service }}
+{% endfor %}
+DefaultDependencies=no
+
+[Service]
+Type=simple
+Environment="HOME={{ devture_systemd_docker_base_systemd_unit_home_path }}"
+ExecStartPre=-{{ devture_systemd_docker_base_host_command_sh }} -c '{{ devture_systemd_docker_base_host_command_docker }} stop -t {{ devture_systemd_docker_base_container_stop_grace_time_seconds }} {{ omnitools_identifier }} 2>/dev/null || true'
+ExecStartPre=-{{ devture_systemd_docker_base_host_command_sh }} -c '{{ devture_systemd_docker_base_host_command_docker }} rm {{ omnitools_identifier }} 2>/dev/null || true'
+
+{#
+  When using the pulled image, root access with write permission is required.
+  See: https://raw.githubusercontent.com/gchq/OmniTools/refs/heads/master/Dockerfile
+#}
+ExecStartPre={{ devture_systemd_docker_base_host_command_docker }} create \
+      --rm \
+      --name={{ omnitools_identifier }} \
+      --log-driver=none \
+      {% if omnitools_container_image_self_build %}
+      --user={{ omnitools_uid }}:{{ omnitools_gid }} \
+      {% endif %}
+      --cap-drop=ALL \
+      {% if omnitools_container_image_self_build %}
+      {% else %}
+      --cap-add=CHOWN \
+      --cap-add=SETGID \
+      --cap-add=SETUID \
+      {% endif %}
+      {% if omnitools_container_image_self_build %}
+      --read-only \
+      {% endif %}
+      --network={{ omnitools_container_network }} \
+      {% if omnitools_container_http_host_bind_port %}
+      -p {{ omnitools_container_http_host_bind_port }}:{{ omnitools_container_http_port }} \
+      {% endif %}
+      --env-file={{ omnitools_base_path }}/env \
+      --label-file={{ omnitools_base_path }}/labels \
+      {% for arg in omnitools_container_extra_arguments %}
+      {{ arg }} \
+      {% endfor %}
+      {{ omnitools_container_image_self_build_name if omnitools_container_image_self_build else omnitools_container_image }}
+
+{% for network in omnitools_container_additional_networks %}
+ExecStartPre={{ devture_systemd_docker_base_host_command_docker }} network connect {{ network }} {{ omnitools_identifier }}
+{% endfor %}
+
+ExecStart={{ devture_systemd_docker_base_host_command_docker }} start --attach {{ omnitools_identifier }}
+
+ExecStop=-{{ devture_systemd_docker_base_host_command_sh }} -c '{{ devture_systemd_docker_base_host_command_docker }} stop -t {{ devture_systemd_docker_base_container_stop_grace_time_seconds }} {{ omnitools_identifier }} 2>/dev/null || true'
+ExecStop=-{{ devture_systemd_docker_base_host_command_sh }} -c '{{ devture_systemd_docker_base_host_command_docker }} rm {{ omnitools_identifier }} 2>/dev/null || true'
+
+Restart=always
+RestartSec=30
+SyslogIdentifier={{ omnitools_identifier }}
+
+[Install]
+WantedBy=multi-user.target

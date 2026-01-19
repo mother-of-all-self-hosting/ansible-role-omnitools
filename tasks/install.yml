@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: 2023 - 2025 Slavi Pantaleev
+# SPDX-FileCopyrightText: 2025 Suguru Hirahara
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+- name: Ensure OmniTools path exists
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0750"
+    owner: "{{ omnitools_uid }}"
+    group: "{{ omnitools_gid }}"
+  with_items:
+    - "{{ omnitools_base_path }}"
+
+- name: Ensure OmniTools support files installed
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/{{ item }}.j2"
+    dest: "{{ omnitools_base_path }}/{{ item }}"
+    mode: "0640"
+    owner: "{{ omnitools_uid }}"
+    group: "{{ omnitools_gid }}"
+  with_items:
+    - env
+    - labels
+
+- name: Run if self-building of OmniTools container image is not enabled
+  when: "not omnitools_container_image_self_build | bool"
+  block:
+    - name: Ensure OmniTools container image is pulled via community.docker.docker_image
+      when: devture_systemd_docker_base_container_image_pull_method == 'ansible-module'
+      community.docker.docker_image:
+        name: "{{ omnitools_container_image }}"
+        source: "{{ 'pull' if ansible_version.major > 2 or ansible_version.minor > 7 else omit }}"
+        force_source: "{{ omnitools_container_image_force_pull if ansible_version.major > 2 or ansible_version.minor >= 8 else omit }}"
+        force: "{{ omit if ansible_version.major > 2 or ansible_version.minor >= 8 else omnitools_container_image_force_pull }}"
+      register: result
+      retries: "{{ devture_playbook_help_container_retries_count }}"
+      delay: "{{ devture_playbook_help_container_retries_delay }}"
+      until: result is not failed
+
+    - name: Ensure OmniTools container image is pulled via ansible.builtin.command
+      when: devture_systemd_docker_base_container_image_pull_method == 'command'
+      ansible.builtin.command:
+        cmd: "{{ devture_systemd_docker_base_host_command_docker }} pull {{ omnitools_container_image }}"
+      register: result
+      retries: "{{ devture_playbook_help_container_retries_count }}"
+      delay: "{{ devture_playbook_help_container_retries_delay }}"
+      until: result is not failed
+      changed_when: "'Downloaded newer image' in result.stdout"
+
+- name: Run if self-building of OmniTools container image is enabled
+  when: "omnitools_container_image_self_build | bool"
+  block:
+    - name: Ensure OmniTools repository is present on self-build
+      ansible.builtin.git:
+        repo: "{{ omnitools_container_image_self_build_repo }}"
+        version: "{{ omnitools_container_image_self_build_repo_version }}"
+        dest: "{{ omnitools_container_image_self_build_src_files_path }}"
+        force: "yes"
+      register: omnitools_git_pull_results
+
+    - name: Ensure OmniTools files for building container image installed
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/{{ item }}.j2"
+        dest: "{{ omnitools_container_image_self_build_src_files_path }}/{{ item }}"
+        mode: "0640"
+        owner: "{{ omnitools_uid }}"
+        group: "{{ omnitools_gid }}"
+        force: true # Overwrite the default Dockerfile at https://raw.githubusercontent.com/gchq/OmniTools/refs/heads/master/Dockerfile
+      with_items:
+        - .dockerignore
+        - Dockerfile
+
+    - name: Check if OmniTools container image exists
+      ansible.builtin.command: docker images -q "{{ omnitools_container_image_self_build_name }}"
+      register: omnitools_docker_image_exists
+      changed_when: false
+
+    - name: Ensure OmniTools container image is built if the container image does not exist or the repository has been updated
+      when: omnitools_docker_image_exists.stdout == '' or (omnitools_git_pull_results.before != omnitools_git_pull_results.after)
+      ansible.builtin.shell:
+        chdir: "{{ omnitools_container_image_self_build_src_files_path }}"
+        cmd: |
+          {{ devture_systemd_docker_base_host_command_docker }} build \
+          -t "{{ omnitools_container_image_self_build_name }}" \
+          -f Dockerfile \
+          .
+      environment:
+        BUILDPLATFORM: "{{ omnitools_container_image_self_build_environment_buildplatform }}"
+      register: omnitools_docker_build_result
+      changed_when: >
+        'Successfully built' in omnitools_docker_build_result.stdout or
+        ('writing image' in omnitools_docker_build_result.stderr and 'CACHED' not in omnitools_docker_build_result.stderr) or
+        'unpacking to' in omnitools_docker_build_result.stderr
+
+- name: Ensure OmniTools container network is created via community.docker.docker_network
+  when: devture_systemd_docker_base_container_network_creation_method == 'ansible-module'
+  community.docker.docker_network:
+    enable_ipv6: "{{ devture_systemd_docker_base_ipv6_enabled }}"
+    name: "{{ omnitools_container_network }}"
+    driver: bridge
+    driver_options: "{{ devture_systemd_docker_base_container_networks_driver_options }}"
+
+- name: Ensure OmniTools container network is created via ansible.builtin.command
+  when: devture_systemd_docker_base_container_network_creation_method == 'command'
+  ansible.builtin.command:
+    cmd: >-
+      {{ devture_systemd_docker_base_host_command_docker }} network create
+      {% if devture_systemd_docker_base_ipv6_enabled %}--ipv6{% endif %}
+      {{ devture_systemd_docker_base_container_networks_driver_options_string }}
+      {{ omnitools_container_network }}
+  register: network_creation_result
+  changed_when: network_creation_result.rc == 0
+  failed_when: network_creation_result.rc != 0 and 'already exists' not in network_creation_result.stderr
+
+- name: Ensure OmniTools systemd service is present
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/systemd/omnitools.service.j2"
+    dest: "{{ devture_systemd_docker_base_systemd_path }}/{{ omnitools_identifier }}.service"
+    mode: "0644"
