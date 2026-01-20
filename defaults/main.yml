@@ -56,7 +56,7 @@ omnitools_container_http_host_bind_port: ""
 
 # The port number in the container
 # "8080" is set to SERVER_PORT for using the self-built image
-omnitools_container_http_port: 8080
+omnitools_container_http_port: 80
 
 # A list of additional container networks that the container would be connected to.
 # The role does not create these networks, so make sure they already exist.
