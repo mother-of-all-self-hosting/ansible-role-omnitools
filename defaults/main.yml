@@ -15,7 +15,7 @@ omnitools_identifier: omnitools
 omnitools_base_path: "/{{ omnitools_identifier }}"
 
 # renovate: datasource=docker depName=iib0011/omni-tools
-omnitools_version: latest
+omnitools_version: v0.6.0
 
 omnitools_uid: ""
 omnitools_gid: ""
@@ -28,9 +28,6 @@ omnitools_hostname: ""
 
 # The path at which OmniTools is served.
 # This value must either be `/` or not end with a slash (e.g. `/omnitools`).
-#
-# Hosting OmniTools under a subpath does not seem to be possible due to OmniTools's
-# technical limitations.
 omnitools_path_prefix: /
 
 omnitools_container_image: "{{ omnitools_container_image_registry_prefix }}iib0011/omni-tools:{{ omnitools_container_image_tag }}"
