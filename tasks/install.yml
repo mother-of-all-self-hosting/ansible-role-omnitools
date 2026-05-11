@@ -25,6 +25,7 @@
   with_items:
     - env
     - labels
+  register: omnitools_support_files_result
 
 - name: Run if self-building of OmniTools container image is not enabled
   when: "not omnitools_container_image_self_build | bool"
@@ -121,3 +122,14 @@
     src: "{{ role_path }}/templates/systemd/omnitools.service.j2"
     dest: "{{ devture_systemd_docker_base_systemd_path }}/{{ omnitools_identifier }}.service"
     mode: "0644"
+  register: omnitools_systemd_service_result
+
+- name: Determine whether OmniTools needs a restart
+  ansible.builtin.set_fact:
+    omnitools_restart_necessary: >-
+      {{
+        omnitools_support_files_result.changed | default(false)
+        or omnitools_systemd_service_result.changed | default(false)
+        or omnitools_container_image_pull_result_ansible_module.changed | default(false)
+        or omnitools_container_image_pull_result_command.changed | default(false)
+      }}
