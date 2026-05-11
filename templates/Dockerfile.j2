@@ -1,0 +1,30 @@
+{#
+SPDX-FileCopyrightText: 2026 Suguru Hirahara
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+#}
+
+{#
+  See: https://raw.githubusercontent.com/iib0011/omni-tools/refs/heads/main/Dockerfile
+#}
+
+FROM node:20 AS build
+
+WORKDIR /app
+
+# Copy the application source code
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Use a lighter base image for the production environment
+FROM joseluisq/static-web-server:latest
+
+COPY --from=build /app/dist {{ omnitools_environment_variables_server_root }}
+
+EXPOSE "{{ omnitools_container_http_port }}"

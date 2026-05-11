@@ -16,7 +16,7 @@ omnitools_identifier: omnitools
 omnitools_base_path: "/{{ omnitools_identifier }}"
 
 # renovate: datasource=docker depName=iib0011/omni-tools
-omnitools_version: v0.6.0
+omnitools_version: 0.6.0
 
 omnitools_uid: ""
 omnitools_gid: ""
@@ -36,13 +36,12 @@ omnitools_container_image_tag: "{{ omnitools_version }}"
 omnitools_container_image_registry_prefix: "{{ omnitools_container_image_registry_prefix_upstream }}"
 omnitools_container_image_registry_prefix_upstream: "{{ omnitools_container_image_registry_prefix_upstream_default }}"
 omnitools_container_image_registry_prefix_upstream_default: docker.io/
-omnitools_container_image_force_pull: "{{ omnitools_container_image.endswith(':latest') }}"
 
 omnitools_container_image_self_build: false
 omnitools_container_image_self_build_name: "iib0011/omni-tools:{{ omnitools_container_image_self_build_repo_version }}"
 omnitools_container_image_self_build_repo: "https://github.com/iib0011/omni-tools.git"
-omnitools_container_image_self_build_repo_version: "{{ 'v' + syncthing_version if syncthing_version != 'latest' else 'main' }}"
-omnitools_container_image_self_build_src_files_path: "{{ syncthing_base_path }}/docker-src"
+omnitools_container_image_self_build_repo_version: "{{ 'v' + omnitools_version if omnitools_version != 'latest' else 'main' }}"
+omnitools_container_image_self_build_src_files_path: "{{ omnitools_base_path }}/docker-src"
 
 # The base container network. It will be auto-created by this role if it doesn't exist already.
 omnitools_container_network: "{{ omnitools_identifier }}"
@@ -54,7 +53,7 @@ omnitools_container_http_host_bind_port: ""
 
 # The port number in the container
 # "8080" is set to SERVER_PORT for using the self-built image
-omnitools_container_http_port: 80
+omnitools_container_http_port: "{{ '8080' if omnitools_container_image_self_build else '80' }}"
 
 # A list of additional container networks that the container would be connected to.
 # The role does not create these networks, so make sure they already exist.
