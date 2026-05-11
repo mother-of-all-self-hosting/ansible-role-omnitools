@@ -3,7 +3,7 @@ galaxy_info:
   author: Daniel Warhammar
   company: warhammar.net
   role_name: omnitools
-  namespace: warhammar.net
+  namespace: mash
   description: OmniTools
   platforms:
     - name: Debian
