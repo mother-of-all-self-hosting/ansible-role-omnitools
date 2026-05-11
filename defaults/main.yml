@@ -111,6 +111,7 @@ omnitools_container_labels_traefik_additional_response_headers_auto: |
     | combine ({'Strict-Transport-Security': omnitools_http_header_strict_transport_security} if omnitools_http_header_strict_transport_security and omnitools_container_labels_traefik_tls else {})
   }}
 omnitools_container_labels_traefik_additional_response_headers_custom: {}
+
 # omnitools_container_labels_additional_labels contains a multiline string with additional labels to add to the container label file.
 # See `../templates/labels.j2` for details.
 # To add your own custom labels, use `omnitools_container_labels_additional_labels_custom`
