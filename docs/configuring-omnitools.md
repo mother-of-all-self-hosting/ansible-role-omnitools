@@ -21,9 +21,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 This is an [Ansible](https://www.ansible.com/) role which installs [OmniTools](https://github.com/iib0011/omni-tools) to run as a [Docker](https://www.docker.com/) container wrapped in a systemd service.
 
-OmniTools is a self-hosted web app offering a variety of online tools to simplify everyday tasks. Whether you are coding, manipulating images/videos, PDFs or crunching numbers, OmniTools has you covered.
-
-All files are processed entirely on the client side: nothing ever leaves your device.
+OmniTools is a self-hosted web app offering a variety of online tools to simplify everyday tasks. All files are processed entirely on the client side.
 
 See the project's [documentation](https://github.com/iib0011/omni-tools/blob/main/README.md) to learn what OmniTools does and why it might be useful to you.
 
