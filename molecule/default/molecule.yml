@@ -33,7 +33,8 @@ provisioner:
         # Variables for OmniTools
         omnitools_uid: 1000
         omnitools_gid: 1000
-        omnitools_hostname: omnitools
+        omnitools_scheme: http
+        omnitools_hostname: localhost
         omnitools_container_labels_traefik_enabled: false
         omnitools_container_http_host_bind_port: 80
   env:
