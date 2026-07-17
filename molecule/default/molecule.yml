@@ -27,6 +27,10 @@ provisioner:
   inventory:
     group_vars:
       all:
+        # Helper variables
+        omnitools_debug_service_enabled: false
+
+        # Variables for OmniTools
         omnitools_uid: 1000
         omnitools_gid: 1000
         omnitools_hostname: omnitools

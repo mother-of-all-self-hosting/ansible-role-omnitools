@@ -23,6 +23,12 @@
         fail_msg: "omnitools.service not active ({{ omnitools_service.status.ActiveState }})"
         success_msg: "omnitools.service is active"
 
+    - name: Retrieve OmniTools service log for debugging
+      when: omnitools_debug_service_enabled | bool
+      ansible.builtin.command:
+        cmd: journalctl -xeu omnitools.service
+      changed_when: false
+
     - name: Wait for OmniTools HTTP endpoint to respond (up to 10m)
       ansible.builtin.uri:
         url: "http://localhost:80/"
