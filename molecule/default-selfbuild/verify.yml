@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: 2026 Suguru Hirahara
+# SPDX-FileCopyrightText: 2026 spatterlight
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+- name: Verify OmniTools systemd service
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for OmniTools service to become active (up to 180s)
+      ansible.builtin.systemd:
+        name: omnitools.service
+      register: omnitools_service
+      until: omnitools_service.status.ActiveState == 'active'
+      retries: 36
+      delay: 5
+
+    - name: Assert OmniTools service is active
+      ansible.builtin.assert:
+        that: omnitools_service.status.ActiveState == 'active'
+        fail_msg: "omnitools.service not active ({{ omnitools_service.status.ActiveState }})"
+        success_msg: "omnitools.service is active"
+
+    - name: Retrieve OmniTools service log for debugging
+      when: omnitools_debug_service_enabled | bool
+      ansible.builtin.command:
+        cmd: journalctl -xeu omnitools.service
+      changed_when: false
+
+    - name: Wait for OmniTools HTTP endpoint to respond (up to 10m)
+      ansible.builtin.uri:
+        url: "http://localhost:80/"
+        method: GET
+        status_code: [200, 302]
+        follow_redirects: none
+      register: omnitools_endpoint
+      until: omnitools_endpoint.status in [200, 302]
+      retries: 120
+      delay: 5
+
+    - name: Assert OmniTools HTTP endpoint responds
+      ansible.builtin.assert:
+        that: omnitools_endpoint.status in [200, 302]
+        fail_msg: "OmniTools did not respond as expected ({{ omnitools_endpoint.status | default('no response') }})"
+        success_msg: "OmniTools responded with {{ omnitools_endpoint.status }}"
+
+    - name: Show OmniTools systemd service status summary
+      ansible.builtin.debug:
+        msg:
+          - "OmniTools systemd: {{ omnitools_service.status.ActiveState }}"
+          - "OmniTools HTTP: {{ omnitools_endpoint.status }}"
