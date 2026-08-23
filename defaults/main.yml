@@ -15,7 +15,7 @@ omnitools_enabled: true
 omnitools_identifier: omnitools
 omnitools_base_path: "/{{ omnitools_identifier }}"
 
-# renovate: datasource=docker depName=iib0011/omni-tools
+# renovate: datasource=docker depName=iib0011/omni-tools versioning=semver
 omnitools_version: 0.6.0
 
 omnitools_uid: ""
