@@ -5,7 +5,16 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 #}
 
 {#
-  See: https://raw.githubusercontent.com/iib0011/omni-tools/refs/heads/main/Dockerfile
+  `tasks/install.yml` renders this over the Dockerfile that the upstream clone
+  brings in, so what self-building produces is NOT the image published on
+  Docker Hub. Upstream's Dockerfile (see
+  https://raw.githubusercontent.com/iib0011/omni-tools/refs/heads/main/Dockerfile)
+  serves the built site with nginx running as root; this one serves it with
+  Static Web Server, which is what lets the systemd unit run the container
+  unprivileged, with a read-only root filesystem and no added capabilities.
+
+  That is also why the SERVER_* variables in `templates/env.j2` are live only
+  on this path: nginx does not read them, and Static Web Server does.
 #}
 
 FROM node:24 AS build

@@ -20,8 +20,24 @@
 - name: Fail if logging level of Static Web Server for OmniTools is invalid
   ansible.builtin.fail:
     msg: >-
-      omnitools_environment_variables_server_log_level must be 'debug', 'error', 'info', 'trace', or 'warn'
+      omnitools_environment_variables_server_log_level must be 'debug', 'error', 'info', 'trace', or 'warn'.
+      Note that this setting only takes effect when self-building the container image, because only
+      then is the server that reads it (Static Web Server) the one serving OmniTools.
   when: "omnitools_environment_variables_server_log_level not in ['debug', 'error', 'info', 'trace', 'warn']"
+
+# The upstream image serves the built site with nginx, whose `listen 80` is
+# baked into the image. Unlike the Static Web Server that the self-built image
+# uses, it does not read SERVER_PORT, so pointing this variable elsewhere does
+# not move the server - it only makes the role publish a port, and hand Traefik
+# a load balancer port, with nothing listening behind either.
+- name: Fail if omnitools_container_http_port is not 80 without self-building
+  ansible.builtin.fail:
+    msg: >-
+      omnitools_container_http_port (`{{ omnitools_container_http_port }}`) must be `80`, unless
+      `omnitools_container_image_self_build` is enabled. The upstream OmniTools container image
+      serves the site with nginx listening on port 80 and ignores the SERVER_PORT variable that
+      this role renders into its environment file, so no other port can work there.
+  when: "not omnitools_container_image_self_build | bool and omnitools_container_http_port | string != '80'"
 
 - name: Run if Traefik is enabled
   when: omnitools_container_labels_traefik_enabled | bool

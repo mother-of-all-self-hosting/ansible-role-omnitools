@@ -54,8 +54,18 @@ omnitools_container_network_deletion_enabled: true
 # Takes an "<ip>:<port>" or "<port>" value (e.g. "127.0.0.1:2586"), or empty string to not expose.
 omnitools_container_http_host_bind_port: ""
 
-# The port number in the container
-# "8080" is set to SERVER_PORT for using the self-built image
+# The port number that OmniTools listens on inside the container.
+#
+# This is not a free choice, and which image is in use decides it:
+#
+# - the self-built image is built by `templates/Dockerfile.j2` around Static
+#   Web Server, which is told this value through SERVER_PORT in
+#   `templates/env.j2`. It runs unprivileged, hence 8080.
+# - the upstream image serves the site with nginx, whose `listen 80` is baked
+#   into the image. It does not read SERVER_PORT (or any of the other SERVER_*
+#   variables), so 80 is the only value that works there. Anything else is
+#   rejected by `tasks/validate_config.yml`, rather than being allowed to
+#   publish a port with nothing behind it.
 omnitools_container_http_port: "{{ '8080' if omnitools_container_image_self_build else '80' }}"
 
 # A list of additional container networks that the container would be connected to.
@@ -222,10 +232,19 @@ omnitools_container_cleanup_command: |
 # Specify the timezone
 omnitools_environment_variables_tz: UTC
 
+# The SERVER_* variables below configure Static Web Server, which is what
+# `templates/Dockerfile.j2` builds the self-built image around. They only take
+# effect when `omnitools_container_image_self_build` is enabled: the upstream
+# image serves the site with nginx, which does not read them.
+# See: https://static-web-server.net/configuration/environment-variables/
+
 # Specify a logging level
 # Valid values: debug, error, info, trace, warn
 omnitools_environment_variables_server_log_level: info
 
+# Where the built site lives inside the self-built image. Both
+# `templates/Dockerfile.j2` (which copies the site there) and
+# `templates/env.j2` (which points the server at it) use this value.
 omnitools_environment_variables_server_root: /var/public
 
 # Additional environment variables.

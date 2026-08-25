@@ -57,6 +57,19 @@ omnitools_hostname: "example.com"
 
 After adjusting the hostname, make sure to adjust your DNS records to point the domain to your server.
 
+### Building the container image yourself
+
+By default the role installs the container image that the OmniTools project publishes. Setting `omnitools_container_image_self_build: true` makes it clone the project at the tag matching `omnitools_version` and build an image on the server instead.
+
+The image this builds is deliberately not the same as the published one. Upstream's Dockerfile serves the built site with [nginx](https://nginx.org/) running as `root`; the role renders [its own Dockerfile](../templates/Dockerfile.j2) over it and serves the site with [Static Web Server](https://static-web-server.net/) instead, which is what lets the container run as an unprivileged user with a read-only root filesystem and no added Linux capabilities.
+
+Two consequences are worth knowing about:
+
+- the `omnitools_environment_variables_server_*` settings configure Static Web Server, so they only have an effect when self-building. The published image ignores them.
+- `omnitools_container_http_port` is 8080 when self-building and 80 otherwise, and neither is a free choice: nginx in the published image listens on port 80 and cannot be told otherwise. The role refuses to install with any other value on that path, rather than publishing a port with nothing behind it.
+
+Building the front-end takes a while and needs considerably more memory than serving it does, so on a small server the published image is the better option.
+
 ### Extending the configuration
 
 There are some additional things you may wish to configure about the component.
