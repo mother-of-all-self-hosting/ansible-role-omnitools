@@ -1,6 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Patch-level bumps of OmniTools are automerged here. OmniTools is a browser-side application: everything it does happens in JavaScript in the visitor's browser, and the container this role deploys is nothing but nginx handing out a directory of static files. The upstream repository is a Vite single-page application with no server component at all, the published image is `nginx:alpine` with the built site copied into it, and the systemd unit mounts no data anywhere. There is no schema, no migration, no state and nothing on disk that a restart onto a new patch image could rewrite; pinning back to an older version undoes an upgrade completely.",
+    "The Molecule scenario runs the bumped version and asserts that the running container is it: `omnitools_version` is compared against the `org.opencontainers.image.version` label of the image the container was created from (the served bundle carries no version string anywhere - grepping the whole document root of 0.6.0 for '0.6.0' finds nothing, and upstream's own package.json still says 0.1.0 - so the label is the only surface there is; it has matched the tag on 0.4.0, 0.5.0 and 0.6.0). A bump to a tag that was never published, or to an image that cannot serve the site, fails there.",
+    "What the scenario cannot see is a bundle that is served correctly but misbehaves once the browser runs it, since nothing here executes JavaScript. That is the residual risk accepted for automerge, and it is bounded: no operator data is at stake, and pinning the version back restores the previous behavior exactly.",
+    "Note that this rule is currently latent. Upstream has only ever published minor releases - v0.1.0 through v0.6.0, with no patch release in the project's history - so in practice every bump so far would have arrived as a human-reviewed pull request regardless. The rule is here so that a future patch release is handled the same way as everywhere else in the fleet, not because it is expected to fire soon.",
+    "`versioning=semver` on the annotation in defaults/main.yml is load-bearing: docker.io/iib0011/omni-tools also publishes floating minor tags (`0.3`, `0.4`, `0.5`, `0.6`) alongside the full ones, and strict semver rejects those two-component tags outright rather than letting the role be pinned to a tag that moves under it."
+  ],
   "extends": [
-    "github>mother-of-all-self-hosting/renovate-config#v1.0.0"
+    "github>mother-of-all-self-hosting/renovate-config#v1.0.0",
+    "github>mother-of-all-self-hosting/renovate-config//patch-automerge#v1.0.0"
   ]
 }
