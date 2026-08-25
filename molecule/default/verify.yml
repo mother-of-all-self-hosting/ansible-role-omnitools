@@ -1,14 +1,36 @@
+# SPDX-FileCopyrightText: 2026 Slavi Pantaleev
 # SPDX-FileCopyrightText: 2026 spatterlight
 # SPDX-FileCopyrightText: 2026 Suguru Hirahara
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 ---
-- name: Verify OmniTools systemd service
+# What this role deploys is a browser-side application: OmniTools does all of
+# its work in JavaScript in the visitor's browser, and the container is a web
+# server handing out a directory of static files. There is no server-side round
+# trip to exercise, so this scenario asserts the things a server of static
+# files can actually get wrong - that the bytes being served come from the
+# pinned version, that they are the real asset tree rather than the fallback
+# document, and that the role's configuration reached the container.
+- name: Verify OmniTools
   hosts: all
   become: true
   gather_facts: false
+
   tasks:
+    # The role is not included in this playbook, so its defaults are not in
+    # scope. Reading defaults/main.yml directly keeps the version assertion
+    # below tied to the value that Renovate bumps, with nothing to keep in
+    # sync in this scenario. include_vars reads from the controller.
+    #
+    # Only values describing the role itself may be read from this namespace.
+    # Anything this scenario tunes (the published port, the hostname, the
+    # timezone) comes from the scenario's group_vars instead.
+    - name: Load the OmniTools role defaults
+      ansible.builtin.include_vars:
+        file: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/defaults/main.yml"
+        name: omnitools_defaults
+
     - name: Wait for OmniTools service to become active (up to 180s)
       ansible.builtin.systemd:
         name: omnitools.service
@@ -17,6 +39,9 @@
       retries: 36
       delay: 5
 
+    # `Restart=always` means the unit reports "active" for a container that is
+    # crash-looping, so this proves very little on its own. Everything below is
+    # what actually distinguishes a serving OmniTools from a restarting one.
     - name: Assert OmniTools service is active
       ansible.builtin.assert:
         that: omnitools_service.status.ActiveState == 'active'
@@ -29,25 +54,224 @@
         cmd: journalctl -xeu omnitools.service
       changed_when: false
 
-    - name: Wait for OmniTools HTTP endpoint to respond (up to 10m)
+    # NEGATIVE CONTROL, established by running the image by hand: the nginx
+    # inside it is configured with a `try_files` fallback to /index.html, so it
+    # answers EVERY path with 200 and the same application shell. A status code
+    # says nothing here - which is all that the scenario this replaced checked.
+    #
+    # The title is what tells OmniTools's own shell apart from any other
+    # document a wrong or misconfigured image could be serving; the stock nginx
+    # image, for instance, also answers `/` with 200, on its welcome page.
+    - name: Wait for the OmniTools application shell to be served (up to 180s)
       ansible.builtin.uri:
-        url: "http://localhost:80/"
+        url: "http://127.0.0.1:{{ omnitools_molecule_http_bind_port }}/"
         method: GET
-        status_code: [200, 302]
         follow_redirects: none
-      register: omnitools_endpoint
-      until: omnitools_endpoint.status in [200, 302]
-      retries: 120
+        return_content: true
+      register: omnitools_shell
+      until: omnitools_shell.status == 200
+      retries: 36
       delay: 5
 
-    - name: Assert OmniTools HTTP endpoint responds
+    - name: Assert OmniTools serves its application shell
       ansible.builtin.assert:
-        that: omnitools_endpoint.status in [200, 302]
-        fail_msg: "OmniTools did not respond as expected ({{ omnitools_endpoint.status | default('no response') }})"
-        success_msg: "OmniTools responded with {{ omnitools_endpoint.status }}"
+        that: "'<title>OmniTools</title>' in omnitools_shell.content"
+        fail_msg: "The document served at / is not the OmniTools application shell"
+        success_msg: "OmniTools serves its application shell at /"
 
-    - name: Show OmniTools systemd service status summary
+    # The shell is 800-odd bytes of markup; everything OmniTools does lives in
+    # the bundle it references. The file name carries a content hash, so it is
+    # read out of the shell rather than hardcoded - it changes with every
+    # upstream release.
+    - name: Determine which bundle the OmniTools application shell references
+      ansible.builtin.set_fact:
+        omnitools_bundle_path: "{{ omnitools_shell.content | regex_search('/assets/index-[A-Za-z0-9_-]+[.]js') | default('', true) }}"
+
+    - name: Assert the OmniTools application shell references a bundle
+      ansible.builtin.assert:
+        that: omnitools_bundle_path | length > 0
+        fail_msg: "The OmniTools application shell references no /assets/index-*.js bundle"
+        success_msg: "The OmniTools application shell references {{ omnitools_bundle_path }}"
+
+    - name: Fetch the OmniTools application bundle
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ omnitools_molecule_http_bind_port }}{{ omnitools_bundle_path }}"
+        method: GET
+        follow_redirects: none
+        status_code: [200, 404]
+      register: omnitools_bundle
+
+    # Because of the fallback above, a bundle that is not on disk is served as
+    # the application shell under a 200 - a status code cannot tell the two
+    # apart, and neither can "did I get a response". The content type can:
+    # nginx types the fallback document as text/html, and only a real file with
+    # a .js extension as JavaScript. The size rules out a truncated or empty
+    # file being typed correctly by its extension alone (the real bundle is
+    # well over half a megabyte; the shell is under a kilobyte).
+    - name: Assert OmniTools serves the application bundle itself
+      ansible.builtin.assert:
+        that:
+          - omnitools_bundle.status == 200
+          - "'javascript' in omnitools_bundle.content_type"
+          - omnitools_bundle.content_length | default(0) | int > 100000
+        fail_msg: >-
+          {{ omnitools_bundle_path }} came back as {{ omnitools_bundle.content_length | default(0) }} bytes
+          of '{{ omnitools_bundle.content_type | default('nothing') }}', which is the fallback document
+          rather than the bundle
+        success_msg: >-
+          OmniTools serves {{ omnitools_bundle_path }} as
+          {{ omnitools_bundle.content_length }} bytes of {{ omnitools_bundle.content_type }}
+
+    # The other half of that argument: a path with the same extension that is
+    # definitely not on disk must NOT come back typed as JavaScript. Without
+    # this, the assert above could be passing for a server that types
+    # everything as JavaScript rather than for one that has the file.
+    - name: Fetch a bundle path that OmniTools has no file for
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ omnitools_molecule_http_bind_port }}/assets/index-molecule-negative-control.js"
+        method: GET
+        follow_redirects: none
+        status_code: [200, 404]
+      register: omnitools_missing_bundle
+
+    - name: Assert OmniTools does not serve a missing bundle as JavaScript
+      ansible.builtin.assert:
+        that: "'javascript' not in omnitools_missing_bundle.content_type"
+        fail_msg: >-
+          A bundle path with no file behind it came back as
+          '{{ omnitools_missing_bundle.content_type }}', so the content type of the real
+          bundle proves nothing
+        success_msg: >-
+          A bundle path with no file behind it comes back as
+          '{{ omnitools_missing_bundle.content_type }}', not as JavaScript
+
+    # OmniTools routes in the browser, so a deep link has to arrive at the
+    # application shell rather than at a 404. This is a property of how the
+    # site is served, and the one behavior templates/Dockerfile.j2 has to
+    # reproduce for the self-built image (it does, with SERVER_FALLBACK_PAGE -
+    # see the default-selfbuild scenario).
+    - name: Fetch an OmniTools deep link
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ omnitools_molecule_http_bind_port }}{{ omnitools_molecule_missing_path }}"
+        method: GET
+        follow_redirects: none
+        status_code: [200, 404]
+        return_content: true
+      register: omnitools_deep_link
+
+    - name: Assert OmniTools serves deep links from the application shell
+      ansible.builtin.assert:
+        that:
+          - omnitools_deep_link.status == 200
+          - "'<title>OmniTools</title>' in omnitools_deep_link.content"
+        fail_msg: >-
+          {{ omnitools_molecule_missing_path }} answered {{ omnitools_deep_link.status }}
+          without the application shell, so in-browser routing is broken
+        success_msg: "OmniTools serves {{ omnitools_molecule_missing_path }} from the application shell"
+
+    - name: Query the OmniTools container
+      ansible.builtin.command:
+        cmd: "docker inspect {{ omnitools_defaults.omnitools_identifier }}"
+      register: omnitools_container_inspect
+      changed_when: false
+
+    - name: Record the OmniTools container's definition
+      ansible.builtin.set_fact:
+        omnitools_container: "{{ (omnitools_container_inspect.stdout | from_json)[0] }}"
+
+    # Tying the running container to `omnitools_version` is what makes this
+    # scenario a real test of the version that Renovate bumps: a bump to a tag
+    # that was never published, or to an image that cannot serve the site,
+    # cannot pass here.
+    #
+    # The version is read off the image's OCI label rather than out of what is
+    # served, because nothing that reaches the browser carries it: grepping the
+    # entire document root of iib0011/omni-tools:0.6.0 for "0.6.0" finds
+    # nothing at all. The label is written by upstream's release build and has
+    # matched the tag on every release checked (0.4.0, 0.5.0, 0.6.0).
+    - name: Assert the running OmniTools container is the version the role asks for
+      ansible.builtin.assert:
+        that:
+          - omnitools_container.Config.Labels['org.opencontainers.image.version'] == omnitools_defaults.omnitools_version | string
+          - omnitools_container.Config.Image is search(':' ~ omnitools_defaults.omnitools_version ~ '$')
+        fail_msg: >-
+          The running container is {{ omnitools_container.Config.Image }}, labelled version
+          '{{ omnitools_container.Config.Labels['org.opencontainers.image.version'] | default('none') }}',
+          but the role asks for {{ omnitools_defaults.omnitools_version }}
+        success_msg: >-
+          The running container is {{ omnitools_container.Config.Image }},
+          labelled version {{ omnitools_container.Config.Labels['org.opencontainers.image.version'] }}
+
+    # Publishing a port is the role's only way of exposing the container
+    # without a reverse proxy in front of it. The container-side port matters
+    # as much as the host-side one: the upstream image's nginx listens on 80
+    # and cannot be told otherwise, so a mapping onto any other container port
+    # would publish a closed door.
+    - name: Assert the OmniTools container publishes the port the role was asked for
+      ansible.builtin.assert:
+        that:
+          - (omnitools_molecule_container_port | string ~ '/tcp') in omnitools_container.NetworkSettings.Ports
+          - >-
+            omnitools_container.NetworkSettings.Ports[omnitools_molecule_container_port | string ~ '/tcp'][0].HostPort
+            == omnitools_molecule_http_bind_port | string
+          - >-
+            omnitools_container.NetworkSettings.Ports[omnitools_molecule_container_port | string ~ '/tcp'][0].HostIp
+            == '127.0.0.1'
+        fail_msg: >-
+          The OmniTools container publishes {{ omnitools_container.NetworkSettings.Ports }},
+          not container port {{ omnitools_molecule_container_port }} on
+          127.0.0.1:{{ omnitools_molecule_http_bind_port }}
+        success_msg: >-
+          The OmniTools container publishes container port {{ omnitools_molecule_container_port }}
+          on 127.0.0.1:{{ omnitools_molecule_http_bind_port }}
+
+    # templates/env.j2 is the role's only channel into the container's
+    # environment. The timezone this scenario asks for is one no image would
+    # default to, so finding it inside the process proves the env file was
+    # rendered, mounted and read - not merely written to disk.
+    #
+    # Note that the SERVER_* variables in that same file reach the container
+    # but not the server: the upstream image runs nginx, which does not read
+    # them. See the default-selfbuild scenario, where they are live.
+    - name: Query the environment of the running OmniTools container
+      ansible.builtin.command:
+        cmd: "docker exec {{ omnitools_defaults.omnitools_identifier }} printenv TZ"
+      register: omnitools_container_tz
+      changed_when: false
+
+    - name: Assert the role's environment file reached the OmniTools process
+      ansible.builtin.assert:
+        that: omnitools_container_tz.stdout == omnitools_environment_variables_tz
+        fail_msg: >-
+          The OmniTools process has TZ={{ omnitools_container_tz.stdout }},
+          but the role was asked for {{ omnitools_environment_variables_tz }}
+        success_msg: "The OmniTools process has TZ={{ omnitools_container_tz.stdout }}"
+
+    # templates/labels.j2 is the other direction the role's configuration
+    # travels: into container labels that a Traefik running elsewhere reads.
+    # Nothing serves them here, so they are read back off the container.
+    - name: Assert the role's Traefik labels reached the OmniTools container
+      ansible.builtin.assert:
+        that:
+          - >-
+            omnitools_container.Config.Labels['traefik.http.routers.omnitools.rule']
+            == 'Host(`' ~ omnitools_hostname ~ '`)'
+          - >-
+            omnitools_container.Config.Labels['traefik.http.services.omnitools.loadbalancer.server.port']
+            == omnitools_molecule_container_port | string
+          - >-
+            omnitools_container.Config.Labels['traefik.http.middlewares.omnitools-add-response-headers.headers.customresponseheaders.X-Content-Type-Options']
+            == omnitools_defaults.omnitools_http_header_content_type_options
+        fail_msg: >-
+          The OmniTools container does not carry the Traefik labels the role renders
+          ({{ omnitools_container.Config.Labels | dict2items | map(attribute='key') | select('match', 'traefik') | list }})
+        success_msg: "The OmniTools container carries the Traefik labels the role renders"
+
+    - name: Show OmniTools verification summary
       ansible.builtin.debug:
         msg:
           - "OmniTools systemd: {{ omnitools_service.status.ActiveState }}"
-          - "OmniTools HTTP: {{ omnitools_endpoint.status }}"
+          - "OmniTools image: {{ omnitools_container.Config.Image }}"
+          - "OmniTools version label: {{ omnitools_container.Config.Labels['org.opencontainers.image.version'] }}"
+          - "OmniTools bundle: {{ omnitools_bundle_path }} ({{ omnitools_bundle.content_length }} bytes of {{ omnitools_bundle.content_type }})"
+          - "OmniTools TZ: {{ omnitools_container_tz.stdout }}"

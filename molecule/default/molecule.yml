@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Slavi Pantaleev
 # SPDX-FileCopyrightText: 2026 spatterlight
 # SPDX-FileCopyrightText: 2026 Suguru Hirahara
 #
@@ -31,13 +32,50 @@ provisioner:
         # Helper variables
         omnitools_debug_service_enabled: false
 
+        # The port that the container publishes on the test host, and which
+        # verify.yml probes. Only defined once, so the two cannot drift apart.
+        #
+        # Deliberately not 80: an unrelated web server listening on the test
+        # host's default HTTP port would satisfy a probe against 80, while a
+        # published port nothing else uses can only be this role's container.
+        omnitools_molecule_http_bind_port: 8080
+
+        # The port inside the container that the published port above maps to.
+        #
+        # It cannot be read out of the role's defaults, because
+        # `omnitools_container_http_port` is derived through Jinja there. It is
+        # 80 because the upstream image serves the built site with nginx, whose
+        # listen directive is baked into the image.
+        omnitools_molecule_container_port: 80
+
+        # A path that the built site has no file for. The image answers every
+        # unknown path with the application shell (nginx `try_files`), so
+        # verify.yml uses this both to check that single-page-application
+        # routing works and to establish what a miss looks like.
+        omnitools_molecule_missing_path: /tools/molecule-negative-control
+
         # Variables for OmniTools
         omnitools_uid: 1000
         omnitools_gid: 1000
         omnitools_scheme: http
-        omnitools_hostname: localhost
-        omnitools_container_labels_traefik_enabled: false
-        omnitools_container_http_host_bind_port: 80
+
+        # Deliberately not `localhost`: it ends up in a Traefik router rule
+        # that verify.yml reads back off the container, and a value nothing
+        # else could have produced makes that check meaningful.
+        omnitools_hostname: omnitools.molecule.local
+
+        # Left enabled (unlike the scenario this replaced) so that
+        # templates/labels.j2 and the response-header computation behind it are
+        # exercised. No Traefik runs here; the labels are only read back off
+        # the container.
+        omnitools_container_labels_traefik_enabled: true
+        omnitools_container_labels_traefik_entrypoints: web
+
+        omnitools_container_http_host_bind_port: "127.0.0.1:{{ omnitools_molecule_http_bind_port }}"
+
+        # A timezone no image would ever default to, so that reading it back
+        # out of the running process proves templates/env.j2 reached it.
+        omnitools_environment_variables_tz: Pacific/Chatham
   env:
     # Workaround for https://github.com/ansible/molecule/issues/4391
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..:/.ansible/roles:/usr/share/ansible/roles:/etc/ansible/roles:~/.ansible/roles

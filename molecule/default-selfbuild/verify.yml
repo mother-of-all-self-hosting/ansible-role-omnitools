@@ -1,14 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Slavi Pantaleev
 # SPDX-FileCopyrightText: 2026 spatterlight
 # SPDX-FileCopyrightText: 2026 Suguru Hirahara
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 ---
-- name: Verify OmniTools systemd service
+# Self-building is not a different way of getting the same container: the role
+# clones the upstream repository, renders its OWN Dockerfile over the one
+# upstream ships, and builds an image around Static Web Server instead of the
+# nginx that upstream publishes. The result runs as an unprivileged user with a
+# read-only root filesystem, on a different port, and is configured entirely
+# through the SERVER_* variables in templates/env.j2 - variables which the
+# upstream image ignores.
+#
+# So this scenario asserts what only self-building can get wrong. It is
+# deliberately not a copy of the `default` scenario's verification: the two
+# being byte-identical was how the previous suite managed to say nothing about
+# either.
+- name: Verify a self-built OmniTools
   hosts: all
   become: true
   gather_facts: false
+
   tasks:
+    # Only values describing the role itself may be read from this namespace.
+    # Anything this scenario tunes comes from its group_vars instead.
+    - name: Load the OmniTools role defaults
+      ansible.builtin.include_vars:
+        file: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/defaults/main.yml"
+        name: omnitools_defaults
+
     - name: Wait for OmniTools service to become active (up to 180s)
       ansible.builtin.systemd:
         name: omnitools.service
@@ -17,6 +38,8 @@
       retries: 36
       delay: 5
 
+    # `Restart=always` means the unit reports "active" for a container that is
+    # crash-looping, so this proves very little on its own.
     - name: Assert OmniTools service is active
       ansible.builtin.assert:
         that: omnitools_service.status.ActiveState == 'active'
@@ -29,25 +52,214 @@
         cmd: journalctl -xeu omnitools.service
       changed_when: false
 
-    - name: Wait for OmniTools HTTP endpoint to respond (up to 10m)
+    # Self-building has no image label to read a version off: the labels the
+    # built image carries are Static Web Server's own. What ties the artifact
+    # to `omnitools_version` here is the source it was built from, so that is
+    # what gets checked - and it is the one thing a version bump can break on
+    # this path, since `omnitools_container_image_self_build_repo_version`
+    # turns the version into a git tag (`v0.6.0`) which has to exist.
+    - name: Determine which commit the OmniTools source tree is checked out at  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: "git -C {{ omnitools_molecule_self_build_src_path }} rev-parse HEAD"
+      register: omnitools_source_head
+      changed_when: false
+
+    - name: Determine which commit the requested OmniTools tag points at  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: "git -C {{ omnitools_molecule_self_build_src_path }} rev-parse v{{ omnitools_defaults.omnitools_version }}^{commit}"
+      register: omnitools_source_tag
+      changed_when: false
+
+    - name: Assert the OmniTools source tree is at the version the role asks for
+      ansible.builtin.assert:
+        that: omnitools_source_head.stdout == omnitools_source_tag.stdout
+        fail_msg: >-
+          {{ omnitools_molecule_self_build_src_path }} is at {{ omnitools_source_head.stdout }},
+          but tag v{{ omnitools_defaults.omnitools_version }} is
+          {{ omnitools_source_tag.stdout }}
+        success_msg: >-
+          The OmniTools source tree is at v{{ omnitools_defaults.omnitools_version }}
+          ({{ omnitools_source_head.stdout }})
+
+    # templates/Dockerfile.j2 is installed with `force: true` over the
+    # Dockerfile that the clone above brought in. If that overwrite ever
+    # silently stopped happening, the build would quietly produce upstream's
+    # nginx image and every SERVER_* assertion below would be testing an image
+    # this role did not describe.
+    - name: Read the Dockerfile that the OmniTools image was built from
+      ansible.builtin.slurp:
+        src: "{{ omnitools_molecule_self_build_src_path }}/Dockerfile"
+      register: omnitools_dockerfile
+
+    - name: Assert the role's own Dockerfile replaced the upstream one
+      ansible.builtin.assert:
+        that:
+          - "'static-web-server' in (omnitools_dockerfile.content | b64decode)"
+          - "omnitools_defaults.omnitools_environment_variables_server_root in (omnitools_dockerfile.content | b64decode)"
+        fail_msg: >-
+          {{ omnitools_molecule_self_build_src_path }}/Dockerfile is not the one this role
+          renders, so the built image is not the one this scenario describes
+        success_msg: "The OmniTools image was built from the role's own Dockerfile"
+
+    - name: Query the OmniTools container
+      ansible.builtin.command:
+        cmd: "docker inspect {{ omnitools_defaults.omnitools_identifier }}"
+      register: omnitools_container_inspect
+      changed_when: false
+
+    - name: Record the OmniTools container's definition
+      ansible.builtin.set_fact:
+        omnitools_container: "{{ (omnitools_container_inspect.stdout | from_json)[0] }}"
+
+    - name: Assert the running container is the locally built image
+      ansible.builtin.assert:
+        that: omnitools_container.Config.Image is search(':v' ~ omnitools_defaults.omnitools_version ~ '$')
+        fail_msg: >-
+          The running container is {{ omnitools_container.Config.Image }}, not the image built
+          from v{{ omnitools_defaults.omnitools_version }}
+        success_msg: "The running container is {{ omnitools_container.Config.Image }}"
+
+    # The self-built image has no shell, so its environment is read off the
+    # container rather than out of the process. These three values are the
+    # entire configuration surface of the server this role builds.
+    - name: Assert the role's environment file reached the OmniTools container
+      ansible.builtin.assert:
+        that:
+          - ('SERVER_PORT=' ~ omnitools_molecule_container_port) in omnitools_container.Config.Env
+          - ('SERVER_ROOT=' ~ omnitools_defaults.omnitools_environment_variables_server_root) in omnitools_container.Config.Env
+          - ('SERVER_FALLBACK_PAGE=' ~ omnitools_defaults.omnitools_environment_variables_server_root ~ '/index.html') in omnitools_container.Config.Env
+        fail_msg: >-
+          The OmniTools container's environment is {{ omnitools_container.Config.Env }},
+          which is not what templates/env.j2 renders for a self-built image
+        success_msg: "The OmniTools container's environment is the one templates/env.j2 renders"
+
+    # SERVER_PORT is the assertion that the `default` scenario cannot make. On
+    # the upstream image the variable is inert - nginx listens on 80 whatever
+    # it says - but Static Web Server reads it, and its own default is 80. The
+    # container therefore only answers on {{ omnitools_molecule_container_port }}
+    # if the value in the env file genuinely reached the server; if it did not,
+    # this fetch finds nothing listening on the published port.
+    #
+    # SERVER_ROOT is proven by the same fetch: Static Web Server defaults to
+    # ./public, and the role's Dockerfile puts the built site somewhere else
+    # entirely, so a server that ignored the variable would have no site to
+    # serve.
+    - name: Wait for the self-built OmniTools to serve its application shell (up to 180s)
       ansible.builtin.uri:
-        url: "http://localhost:80/"
+        url: "http://127.0.0.1:{{ omnitools_molecule_http_bind_port }}/"
         method: GET
-        status_code: [200, 302]
         follow_redirects: none
-      register: omnitools_endpoint
-      until: omnitools_endpoint.status in [200, 302]
-      retries: 120
+        return_content: true
+      register: omnitools_shell
+      until: omnitools_shell.status == 200
+      retries: 36
       delay: 5
 
-    - name: Assert OmniTools HTTP endpoint responds
+    - name: Assert the self-built OmniTools serves its application shell
       ansible.builtin.assert:
-        that: omnitools_endpoint.status in [200, 302]
-        fail_msg: "OmniTools did not respond as expected ({{ omnitools_endpoint.status | default('no response') }})"
-        success_msg: "OmniTools responded with {{ omnitools_endpoint.status }}"
+        that: "'<title>OmniTools</title>' in omnitools_shell.content"
+        fail_msg: "The document served at / is not the OmniTools application shell"
+        success_msg: >-
+          The self-built OmniTools serves its application shell from
+          {{ omnitools_defaults.omnitools_environment_variables_server_root }}
+          on port {{ omnitools_molecule_container_port }}
 
-    - name: Show OmniTools systemd service status summary
+    - name: Assert the OmniTools container publishes the port the role was asked for
+      ansible.builtin.assert:
+        that:
+          - (omnitools_molecule_container_port | string ~ '/tcp') in omnitools_container.NetworkSettings.Ports
+          - >-
+            omnitools_container.NetworkSettings.Ports[omnitools_molecule_container_port | string ~ '/tcp'][0].HostPort
+            == omnitools_molecule_http_bind_port | string
+        fail_msg: >-
+          The OmniTools container publishes {{ omnitools_container.NetworkSettings.Ports }},
+          not container port {{ omnitools_molecule_container_port }} on
+          127.0.0.1:{{ omnitools_molecule_http_bind_port }}
+        success_msg: >-
+          The OmniTools container publishes container port {{ omnitools_molecule_container_port }}
+          on 127.0.0.1:{{ omnitools_molecule_http_bind_port }}
+
+    # SERVER_FALLBACK_PAGE is what makes in-browser routing work on the
+    # self-built image, the way `try_files` does on the upstream one. Static
+    # Web Server answers an unknown path with 404 unless it is set, so unlike
+    # on the upstream image a 200 here is a real result.
+    - name: Fetch an OmniTools deep link
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ omnitools_molecule_http_bind_port }}{{ omnitools_molecule_missing_path }}"
+        method: GET
+        follow_redirects: none
+        status_code: [200, 404]
+        return_content: true
+      register: omnitools_deep_link
+
+    - name: Assert the self-built OmniTools serves deep links from the application shell
+      ansible.builtin.assert:
+        that:
+          - omnitools_deep_link.status == 200
+          - "'<title>OmniTools</title>' in omnitools_deep_link.content"
+        fail_msg: >-
+          {{ omnitools_molecule_missing_path }} answered {{ omnitools_deep_link.status }}
+          without the application shell, so SERVER_FALLBACK_PAGE did not take effect
+        success_msg: "The self-built OmniTools serves {{ omnitools_molecule_missing_path }} from the application shell"
+
+    # The site itself has to survive the build, not just the shell that
+    # references it. The bundle name carries a content hash, so it is read out
+    # of the shell rather than hardcoded.
+    - name: Determine which bundle the OmniTools application shell references
+      ansible.builtin.set_fact:
+        omnitools_bundle_path: "{{ omnitools_shell.content | regex_search('/assets/index-[A-Za-z0-9_-]+[.]js') | default('', true) }}"
+
+    - name: Fetch the OmniTools application bundle
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ omnitools_molecule_http_bind_port }}{{ omnitools_bundle_path }}"
+        method: GET
+        follow_redirects: none
+        status_code: [200, 404]
+      register: omnitools_bundle
+
+    # With a fallback page configured, a bundle that never made it out of the
+    # build is served as the application shell under a 200. The content type
+    # and the size are what tell the two apart.
+    - name: Assert the self-built OmniTools serves the application bundle itself
+      ansible.builtin.assert:
+        that:
+          - omnitools_bundle_path | length > 0
+          - omnitools_bundle.status == 200
+          - "'javascript' in omnitools_bundle.content_type"
+          - omnitools_bundle.content_length | default(0) | int > 100000
+        fail_msg: >-
+          {{ omnitools_bundle_path | default('no bundle') }} came back as
+          {{ omnitools_bundle.content_length | default(0) }} bytes of
+          '{{ omnitools_bundle.content_type | default('nothing') }}', which is the fallback
+          document rather than the bundle
+        success_msg: >-
+          The self-built OmniTools serves {{ omnitools_bundle_path }} as
+          {{ omnitools_bundle.content_length }} bytes of {{ omnitools_bundle.content_type }}
+
+    # Self-building is also what buys the hardening that the upstream image
+    # cannot have: the systemd unit only passes --user and --read-only on this
+    # path, because upstream's nginx needs to start as root and write its
+    # configuration. Losing either silently would be invisible to every other
+    # check here.
+    - name: Assert the self-built OmniTools container runs hardened
+      ansible.builtin.assert:
+        that:
+          - omnitools_container.Config.User == ((omnitools_uid | string) ~ ':' ~ (omnitools_gid | string))
+          - omnitools_container.HostConfig.ReadonlyRootfs
+          - (omnitools_container.HostConfig.CapAdd | default([], true)) | length == 0
+        fail_msg: >-
+          The OmniTools container runs as '{{ omnitools_container.Config.User }}' with
+          read-only rootfs {{ omnitools_container.HostConfig.ReadonlyRootfs }} and added
+          capabilities {{ omnitools_container.HostConfig.CapAdd | default([], true) }}
+        success_msg: >-
+          The OmniTools container runs as {{ omnitools_container.Config.User }} with a
+          read-only root filesystem and no added capabilities
+
+    - name: Show OmniTools verification summary
       ansible.builtin.debug:
         msg:
           - "OmniTools systemd: {{ omnitools_service.status.ActiveState }}"
-          - "OmniTools HTTP: {{ omnitools_endpoint.status }}"
+          - "OmniTools image: {{ omnitools_container.Config.Image }}"
+          - "OmniTools source: v{{ omnitools_defaults.omnitools_version }} ({{ omnitools_source_head.stdout }})"
+          - "OmniTools bundle: {{ omnitools_bundle_path }} ({{ omnitools_bundle.content_length }} bytes of {{ omnitools_bundle.content_type }})"
+          - "OmniTools container user: {{ omnitools_container.Config.User }}"

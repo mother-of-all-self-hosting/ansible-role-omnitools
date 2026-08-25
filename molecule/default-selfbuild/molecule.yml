@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Slavi Pantaleev
 # SPDX-FileCopyrightText: 2026 spatterlight
 # SPDX-FileCopyrightText: 2026 Suguru Hirahara
 #
@@ -31,13 +32,38 @@ provisioner:
         # Helper variables
         omnitools_debug_service_enabled: false
 
+        # The port that the container publishes on the test host, and which
+        # verify.yml probes. Only defined once, so the two cannot drift apart.
+        omnitools_molecule_http_bind_port: 8081
+
+        # The port inside the container that the published port above maps to.
+        #
+        # It cannot be read out of the role's defaults, because
+        # `omnitools_container_http_port` is derived through Jinja there. The
+        # self-built image serves the site with Static Web Server rather than
+        # nginx, under an unprivileged user, which is why it is 8080 and not 80
+        # here - and, unlike in the `default` scenario, it is a value the role
+        # really does hand to the server through SERVER_PORT.
+        omnitools_molecule_container_port: 8080
+
+        # Where tasks/install.yml clones the upstream repository and renders
+        # the role's own Dockerfile over the one upstream ships. Derived
+        # through Jinja in the role's defaults, so it is spelled out here.
+        omnitools_molecule_self_build_src_path: /omnitools/docker-src
+
+        # A path that the built site has no file for, used to check that
+        # SERVER_FALLBACK_PAGE reaches the server and single-page-application
+        # routing therefore works.
+        omnitools_molecule_missing_path: /tools/molecule-negative-control
+
         # Variables for OmniTools
         omnitools_uid: 1000
         omnitools_gid: 1000
         omnitools_scheme: http
-        omnitools_hostname: localhost
+        omnitools_hostname: omnitools.molecule.local
         omnitools_container_labels_traefik_enabled: false
-        omnitools_container_http_host_bind_port: 80
+
+        omnitools_container_http_host_bind_port: "127.0.0.1:{{ omnitools_molecule_http_bind_port }}"
 
         # Test self-building
         omnitools_container_image_self_build: true
