@@ -171,7 +171,7 @@
 
     - name: Query the OmniTools container
       ansible.builtin.command:
-        cmd: "docker inspect {{ omnitools_defaults.omnitools_identifier }}"
+        cmd: "docker container inspect {{ omnitools_defaults.omnitools_identifier }}"
       register: omnitools_container_inspect
       changed_when: false
 
