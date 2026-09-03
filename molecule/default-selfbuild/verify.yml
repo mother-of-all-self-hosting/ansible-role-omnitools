@@ -255,7 +255,7 @@
           The OmniTools container runs as {{ omnitools_container.Config.User }} with a
           read-only root filesystem and no added capabilities
 
-    - name: Show OmniTools verification summary
+    - name: Show the OmniTools verification summary
       ansible.builtin.debug:
         msg:
           - "OmniTools systemd: {{ omnitools_service.status.ActiveState }}"
