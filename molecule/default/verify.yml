@@ -184,18 +184,16 @@
     # entire document root of iib0011/omni-tools:0.6.0 for "0.6.0" finds
     # nothing at all. The label is written by upstream's release build and has
     # matched the tag on every release checked (0.4.0, 0.5.0, 0.6.0).
-    - name: Assert the running OmniTools container is the version this role installs
+    - name: Assert the OmniTools image the role deployed is the version defaults/main.yml pins
       ansible.builtin.assert:
         that:
           - omnitools_container.Config.Labels['org.opencontainers.image.version'] == omnitools_defaults.omnitools_version | string
           - omnitools_container.Config.Image is search(':' ~ omnitools_defaults.omnitools_version ~ '$')
         fail_msg: >-
-          The running container is {{ omnitools_container.Config.Image }}, labelled version
-          '{{ omnitools_container.Config.Labels['org.opencontainers.image.version'] | default('none') }}',
-          but the role asks for {{ omnitools_defaults.omnitools_version }}
-        success_msg: >-
-          The running container is {{ omnitools_container.Config.Image }},
-          labelled version {{ omnitools_container.Config.Labels['org.opencontainers.image.version'] }}
+          The running image is labelled
+          {{ omnitools_container.Config.Labels['org.opencontainers.image.version'] | default('none') }},
+          but defaults/main.yml pins {{ omnitools_defaults.omnitools_version }}
+        success_msg: "The running image is labelled with the version defaults/main.yml pins"
 
     # Publishing a port is the role's only way of exposing the container
     # without a reverse proxy in front of it. The container-side port matters
