@@ -230,7 +230,7 @@
         fail_msg: >-
           {{ omnitools_bundle_path | default('no bundle') }} came back as
           {{ omnitools_bundle.content_length | default(0) }} bytes of
-          '{{ omnitools_bundle.content_type | default('nothing') }}', which is the fallback
+          '{{ omnitools_bundle.content_type | default('none') }}', which is the fallback
           document rather than the bundle
         success_msg: >-
           The self-built OmniTools serves {{ omnitools_bundle_path }} as

@@ -116,7 +116,7 @@
           - omnitools_bundle.content_length | default(0) | int > 100000
         fail_msg: >-
           {{ omnitools_bundle_path }} came back as {{ omnitools_bundle.content_length | default(0) }} bytes
-          of '{{ omnitools_bundle.content_type | default('nothing') }}', which is the fallback document
+          of '{{ omnitools_bundle.content_type | default('none') }}', which is the fallback document
           rather than the bundle
         success_msg: >-
           OmniTools serves {{ omnitools_bundle_path }} as
