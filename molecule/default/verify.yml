@@ -179,11 +179,6 @@
       ansible.builtin.set_fact:
         omnitools_container: "{{ (omnitools_container_inspect.stdout | from_json)[0] }}"
 
-    # Tying the running container to `omnitools_version` is what makes this
-    # scenario a real test of the version that Renovate bumps: a bump to a tag
-    # that was never published, or to an image that cannot serve the site,
-    # cannot pass here.
-    #
     # The version is read off the image's OCI label rather than out of what is
     # served, because nothing that reaches the browser carries it: grepping the
     # entire document root of iib0011/omni-tools:0.6.0 for "0.6.0" finds
