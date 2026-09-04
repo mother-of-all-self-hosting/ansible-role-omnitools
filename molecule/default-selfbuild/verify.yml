@@ -17,7 +17,7 @@
 # deliberately not a copy of the `default` scenario's verification: the two
 # being byte-identical was how the previous suite managed to say nothing about
 # either.
-- name: Verify a self-built OmniTools
+- name: Verify self-built OmniTools
   hosts: all
   become: true
   gather_facts: false
