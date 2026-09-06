@@ -108,7 +108,7 @@
       register: omnitools_container_inspect
       changed_when: false
 
-    - name: Record the OmniTools container's definition
+    - name: Parse the OmniTools container definition
       ansible.builtin.set_fact:
         omnitools_container: "{{ (omnitools_container_inspect.stdout | from_json)[0] }}"
 
