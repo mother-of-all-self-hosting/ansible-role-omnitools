@@ -105,12 +105,12 @@
     - name: Query the OmniTools container
       ansible.builtin.command:
         cmd: "docker container inspect {{ omnitools_defaults.omnitools_identifier }}"
-      register: omnitools_container_inspect
+      register: omnitools_container_raw
       changed_when: false
 
     - name: Parse the OmniTools container definition
       ansible.builtin.set_fact:
-        omnitools_container: "{{ (omnitools_container_inspect.stdout | from_json)[0] }}"
+        omnitools_container: "{{ (omnitools_container_raw.stdout | from_json)[0] }}"
 
     - name: Assert the running container is the locally built image
       ansible.builtin.assert:
