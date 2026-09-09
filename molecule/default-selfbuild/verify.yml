@@ -23,6 +23,8 @@
   gather_facts: false
 
   tasks:
+    - name: Verify that OmniTools works
+      block:
     # The role is not included in this playbook, so its defaults are not in
     # scope. Reading defaults/main.yml directly ties the version assertion
     # below.
@@ -268,3 +270,19 @@
           - "OmniTools source: v{{ omnitools_defaults.omnitools_version }} ({{ omnitools_source_head.stdout }})"
           - "OmniTools bundle: {{ omnitools_bundle_path }} ({{ omnitools_bundle.content_length }} bytes of {{ omnitools_bundle.content_type }})"
           - "OmniTools container user: {{ omnitools_container.Config.User }}"
+
+      rescue:
+        # Whatever went wrong, the reason is almost always in the systemd service log.
+        - name: Retrieve the OmniTools systemd service log
+          ansible.builtin.command:
+            cmd: journalctl --no-pager --output=cat --unit=omnitools.service
+          register: omnitools_service_log
+          changed_when: false
+
+        - name: Show the OmniTools systemd service log
+          ansible.builtin.debug:
+            var: omnitools_service_log.stdout_lines
+
+        - name: Fail because verification did not pass
+          ansible.builtin.fail:
+            msg: "OmniTools verification failed. The systemd service log is printed above."
