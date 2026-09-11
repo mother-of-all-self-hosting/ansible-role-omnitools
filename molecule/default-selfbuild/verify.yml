@@ -22,6 +22,10 @@
   become: true
   gather_facts: false
 
+  vars:
+    omnitools_verify_units:
+      - omnitools.service
+
   tasks:
     - name: Verify that OmniTools works
       block:
@@ -33,13 +37,14 @@
             file: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/defaults/main.yml"
             name: omnitools_defaults
 
-        - name: Wait for the OmniTools systemd service to become active (up to 180s)
+        - name: Wait for the OmniTools systemd services to become active (up to 180s each)
           ansible.builtin.systemd_service:
-            name: omnitools.service
-          register: omnitools_service
-          until: omnitools_service.status.ActiveState == 'active'
+            name: "{{ item }}"
+          register: omnitools_services
+          until: omnitools_services.status.ActiveState == 'active'
           retries: 36
           delay: 5
+          loop: "{{ omnitools_verify_units }}"
           # So that giving up is reported by the assertion below rather than as a
           # wall of systemd unit properties.
           failed_when: false
@@ -47,17 +52,20 @@
         # `Restart=always` in the systemd unit means that even a container which crashes
         # and gets restarted reads as active here, so this is a precondition rather than
         # a result.
-        - name: Assert the OmniTools systemd service is active
+        - name: Assert the OmniTools systemd services are active
           ansible.builtin.assert:
-            that: omnitools_service.status.ActiveState == 'active'
-            fail_msg: "omnitools.service is not active ({{ omnitools_service.status.ActiveState }})"
-            success_msg: "omnitools.service is active"
+            that: omnitools_services.results | map(attribute='status.ActiveState') | unique | list == ['active']
+            fail_msg: >-
+              Not every service is active:
+              {{ dict(omnitools_verify_units | zip(omnitools_services.results | map(attribute='status.ActiveState'))) }}
+            success_msg: "Every systemd service is active"
 
-        - name: Retrieve the OmniTools systemd service log for debugging
+        - name: Retrieve the OmniTools systemd services log for debugging
           when: omnitools_debug_service_enabled | bool
           ansible.builtin.command:
-            cmd: journalctl --no-pager --output=cat --unit=omnitools.service
+            cmd: "journalctl --no-pager --output=cat --unit={{ item }}"
           changed_when: false
+          loop: "{{ omnitools_verify_units }}"
 
         # Self-building has no image label to read a version off: the labels the
         # built image carries are Static Web Server's own. What ties the artifact
@@ -265,7 +273,7 @@
         - name: Show the OmniTools verification summary
           ansible.builtin.debug:
             msg:
-              - "OmniTools systemd: {{ omnitools_service.status.ActiveState }}"
+              - "OmniTools systemd: {% for unit, state in omnitools_verify_units | zip(omnitools_services.results | map(attribute='status.ActiveState')) %}{{ unit }} ({{ state }}){% if not loop.last %}, {% endif %}{% endfor %}"
               - "OmniTools image: {{ omnitools_container.Config.Image }}"
               - "OmniTools source: v{{ omnitools_defaults.omnitools_version }} ({{ omnitools_source_head.stdout }})"
               - "OmniTools bundle: {{ omnitools_bundle_path }} ({{ omnitools_bundle.content_length }} bytes of {{ omnitools_bundle.content_type }})"
