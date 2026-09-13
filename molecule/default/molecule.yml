@@ -31,6 +31,7 @@ provisioner:
       all:
         # Helper variables
         omnitools_debug_service_enabled: false
+        omnitools_restarts_check_enabled: true
 
         # The port that the container publishes on the test host, and which
         # verify.yml probes. Only defined once, so the two cannot drift apart.
