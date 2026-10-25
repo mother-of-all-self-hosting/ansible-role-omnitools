@@ -42,6 +42,10 @@ omnitools_container_image_self_build_name: "iib0011/omni-tools:{{ omnitools_cont
 omnitools_container_image_self_build_repo: "https://github.com/iib0011/omni-tools.git"
 omnitools_container_image_self_build_repo_version: "{{ 'v' + omnitools_version if omnitools_version != 'latest' else 'main' }}"
 omnitools_container_image_self_build_src_files_path: "{{ omnitools_base_path }}/docker-src"
+omnitools_container_image_self_build_base_image: "{{ omnitools_container_image_self_build_base_image_name }}:{{ omnitools_container_image_self_build_base_image_tag }}"
+omnitools_container_image_self_build_base_image_name: joseluisq/static-web-server
+# renovate: datasource=docker depName=joseluisq/static-web-server versioning=semver
+omnitools_container_image_self_build_base_image_tag: 2.44.1
 
 # The base container network. It will be auto-created by this role if it doesn't exist already.
 omnitools_container_network: "{{ omnitools_identifier }}"

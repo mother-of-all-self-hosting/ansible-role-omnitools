@@ -33,7 +33,7 @@ COPY . .
 RUN npm run build
 
 # Use a lighter base image for the production environment
-FROM joseluisq/static-web-server:latest
+FROM {{ omnitools_container_image_self_build_base_image }}
 
 COPY --from=build /app/dist {{ omnitools_environment_variables_server_root }}
 
