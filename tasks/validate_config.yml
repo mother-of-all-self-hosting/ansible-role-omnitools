@@ -13,9 +13,6 @@
   with_items:
     - omnitools_uid
     - omnitools_gid
-    - omnitools_hostname
-    - omnitools_path_prefix
-    - omnitools_container_network
 
 - name: Fail if logging level of Static Web Server for OmniTools is invalid
   ansible.builtin.fail:
